@@ -181,3 +181,35 @@ Judge calls run synchronously.
 
 **Why:** The 50% Batch discount applies to a handful of judge calls across five live trips. The
 saving is cents; the cost is async job-polling code. Revisit if the live tier ever grows large.
+
+---
+
+### D-016 · Judge scores are not a standalone quality metric
+**Phase:** 1 · **2026-09-07**
+
+The calibration ran and the judge failed it. Against 20 hand-labelled itineraries,
+quadratic-weighted kappa was 0.449 (moderate) for fairness, −0.071 (worse than chance) for
+itinerary coherence, and undefined for trip-pitch quality. No phase may report a judge score as
+evidence of quality without the accompanying kappa and bias figures from `evals/README.md`.
+
+**Why:** D-014 predicted same-family self-preference and the data shows it directly: the judge
+scored the planner's own prose 4 or 5 on every one of the 20 items the human scored 3, a +1.55
+mean gap with zero exact agreement. Coherence agreement is no better than chance because the
+judge will not reproduce the rater's harshest scores. Only fairness carries usable signal, and it
+is bounded by the rater's own 5-of-9 intra-rater consistency. Recalibration is required after
+rubric v2 and after the K-006 logistics repair, because both change what is being measured.
+
+---
+
+### D-017 · Rubric v1 is frozen; revisions become new versions
+**Phase:** 1 · **2026-09-07**
+
+The three rubrics that the committed labels were made against are immutable. `labels.json` pins
+`rubric_version` (a hash of the rubric text) and `evals.calibrate` refuses to compare across a
+change. A revised rubric ships as a new version alongside, with its own labelling pass.
+
+**Why:** Editing a rubric in place would silently invalidate three hours of human labelling —
+judging a new rubric against old labels measures rubric drift, not judge accuracy. The labelling
+also showed v1 measures a narrower thing than the rater actually graded (coherence missed whether
+the trip is interesting, fairness missed budget under-utilization, pitch missed presentation), so
+a v2 is expected. See `docs/PRODUCT_FEEDBACK.md` F-29.

@@ -58,6 +58,28 @@ def render(data: dict[str, Any]) -> str:
         lines.append(
             f"{node} latency: p50={median(values):.1f}ms p95={_percentile(values, 0.95):.1f}ms"
         )
+    calibration = data.get("calibration")
+    if calibration and calibration.get("status") == "ok":
+        from evals.calibrate import band
+
+        lines.append("Judge calibration (human vs claude-sonnet-5, 20 items):")
+        for name, stats in (calibration.get("judge") or {}).get("criteria", {}).items():
+            kappa = stats.get("kappa")
+            if kappa is None:
+                verdict = f"kappa undefined ({stats['reason']})"
+            elif stats.get("degenerate"):
+                verdict = f"kappa {kappa:.3f} UNINFORMATIVE ({stats['reason']})"
+            else:
+                verdict = f"kappa {kappa:.3f} ({band(kappa)})"
+            lines.append(
+                f"  {name}: {verdict}, exact {stats['exact_agreement']:.0%}, "
+                f"bias {stats['bias']:+.2f}"
+            )
+        lines.append(
+            "  Judge scores are NOT trusted as a standalone quality metric; "
+            "see evals/README.md."
+        )
+
     misses = data.get("replay_misses") or []
     if misses:
         lines.append(
@@ -69,10 +91,35 @@ def render(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _write_baseline() -> None:
+    """Freeze the current offline results and calibration as the committed baseline."""
+    from datetime import datetime, timezone
+
+    from evals.calibrate import compute as compute_calibration
+
+    source = _ROOT / "results" / "offline.json"
+    if not source.is_file():
+        raise SystemExit("No offline results to promote; run `python -m evals.run` first.")
+    data = json.loads(source.read_text(encoding="utf-8"))
+    data["baseline_committed_at"] = datetime.now(timezone.utc).isoformat()
+    data["calibration"] = compute_calibration()
+    target = _ROOT / "baseline.json"
+    target.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Wrote {target}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", action="store_true")
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="compose baseline.json from the latest offline results plus the calibration",
+    )
     args = parser.parse_args()
+    if args.write:
+        _write_baseline()
+        return
     path = _ROOT / ("baseline.json" if args.baseline else "results/offline.json")
     if not path.is_file():
         print(f"No {'baseline' if args.baseline else 'offline results'} yet: {path}")
