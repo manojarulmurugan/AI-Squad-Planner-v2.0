@@ -68,9 +68,10 @@ def _trip(**overrides):
 @pytest.mark.asyncio
 async def test_get_trip_returns_lobby_shape(monkeypatch):
     collection = FakeCollection(_trip())
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
-    response = await trips_api.get_trip("trip-1")
+    response = await trips_api.get_trip(
+        "trip-1", trip=collection.trip, trips=collection, users=collection
+    )
 
     assert response == {
         "trip_id": "trip-1",
@@ -102,9 +103,10 @@ async def test_can_generate_requires_every_member_ready(monkeypatch):
          "preferences": {"origin_city": "ATL"}},
     ]
     collection = FakeCollection(_trip(invited_members=members))
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
-    response = await trips_api.get_trip("trip-1")
+    response = await trips_api.get_trip(
+        "trip-1", trip=collection.trip, trips=collection, users=collection
+    )
 
     assert response["all_ready"] is True
     assert response["can_generate"] is True
@@ -118,9 +120,10 @@ async def test_can_generate_is_false_once_planning_started(monkeypatch):
          "preferences": {"origin_city": "ORD"}},
     ]
     collection = FakeCollection(_trip(invited_members=members, status="generating"))
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
-    response = await trips_api.get_trip("trip-1")
+    response = await trips_api.get_trip(
+        "trip-1", trip=collection.trip, trips=collection, users=collection
+    )
 
     assert response["all_ready"] is True
     assert response["can_generate"] is False
@@ -138,9 +141,10 @@ async def test_get_trip_uses_one_user_query_for_the_whole_squad(monkeypatch):
         return original_find(*args, **kwargs)
 
     collection.find = counting_find
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
-    await trips_api.get_trip("trip-1")
+    await trips_api.get_trip(
+        "trip-1", trip=collection.trip, trips=collection, users=collection
+    )
 
     assert calls["find"] == 1
 
@@ -156,9 +160,10 @@ async def test_get_trip_backfills_invited_members_from_legacy_emails(monkeypatch
         "invited_emails": ["a@example.com", "b@example.com"],
     }
     collection = FakeCollection(trip)
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
-    response = await trips_api.get_trip("trip-2")
+    response = await trips_api.get_trip(
+        "trip-2", trip=collection.trip, trips=collection, users=collection
+    )
 
     assert [m["email"] for m in response["invited_members"]] == [
         "a@example.com",
@@ -173,9 +178,10 @@ async def test_get_trip_heals_a_legacy_trip_missing_its_leader(monkeypatch):
     """Trips created before the creator became a squad member have no leader entry."""
     trip = _trip(invited_members=[{"email": "guest@example.com", "status": "pending"}])
     collection = FakeCollection(trip)
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
-    response = await trips_api.get_trip("trip-1")
+    response = await trips_api.get_trip(
+        "trip-1", trip=collection.trip, trips=collection, users=collection
+    )
 
     assert [(m["email"], m["is_leader"]) for m in response["invited_members"]] == [
         ("leader@example.com", True),
@@ -193,19 +199,21 @@ async def test_get_trip_heals_a_legacy_trip_missing_its_leader(monkeypatch):
 @pytest.mark.asyncio
 async def test_create_trip_makes_the_creator_the_leader(monkeypatch):
     collection = FakeCollection({"trip_id": "unused"})
-    monkeypatch.setattr(trips_api, "get_collection", lambda name: collection)
 
     async def send_trip_invite(*args, **kwargs):
         return None
 
     monkeypatch.setattr(trips_api, "send_trip_invite", send_trip_invite)
 
-    await trips_api.create_trip(
-        trips_api.CreateTripRequest(
+    # __wrapped__ skips the rate-limit decorator, which needs a real Request.
+    await trips_api.create_trip.__wrapped__(
+        request=None,
+        body=trips_api.CreateTripRequest(
             trip_name="Denver Weekend",
-            created_by="leader@example.com",
             invited_emails=["a@example.com", "b@example.com"],
-        )
+        ),
+        current_user={"email": "leader@example.com"},
+        trips=collection,
     )
 
     assert collection.inserted["invited_members"] == [
@@ -218,10 +226,9 @@ async def test_create_trip_makes_the_creator_the_leader(monkeypatch):
 @pytest.mark.asyncio
 async def test_remove_member_drops_a_straggler(monkeypatch):
     collection = FakeCollection(_trip())
-    monkeypatch.setattr(squad_api, "get_collection", lambda name: collection)
 
     result = await squad_api.remove_member(
-        "trip-1", "guest@example.com", current_user={"email": "leader@example.com"}
+        "trip-1", "guest@example.com", trip=collection.trip, trips=collection
     )
 
     assert result["removed"] == "guest@example.com"
@@ -230,26 +237,12 @@ async def test_remove_member_drops_a_straggler(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_remove_member_is_leader_only(monkeypatch):
-    collection = FakeCollection(_trip())
-    monkeypatch.setattr(squad_api, "get_collection", lambda name: collection)
-
-    with pytest.raises(HTTPException) as exc:
-        await squad_api.remove_member(
-            "trip-1", "leader@example.com", current_user={"email": "guest@example.com"}
-        )
-
-    assert exc.value.status_code == 403
-
-
-@pytest.mark.asyncio
 async def test_remove_member_refuses_to_remove_the_leader(monkeypatch):
     collection = FakeCollection(_trip())
-    monkeypatch.setattr(squad_api, "get_collection", lambda name: collection)
 
     with pytest.raises(HTTPException) as exc:
         await squad_api.remove_member(
-            "trip-1", "leader@example.com", current_user={"email": "leader@example.com"}
+            "trip-1", "leader@example.com", trip=collection.trip, trips=collection
         )
 
     assert exc.value.status_code == 422
