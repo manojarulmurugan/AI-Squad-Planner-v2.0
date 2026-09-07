@@ -10,7 +10,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from api import admin, hitl, refinements, squad, trips
+from api import admin, calibration, hitl, refinements, squad, trips
 from api.middleware.rate_limit import limiter
 from api.routes import auth
 from config import configure_langsmith, settings
@@ -39,6 +39,7 @@ app.include_router(squad.router, prefix="/api")
 app.include_router(hitl.router, prefix="/api")
 app.include_router(refinements.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(calibration.router, prefix="/api")
 
 debug_ui_dir = Path(__file__).resolve().parent / "debug_ui"
 app.mount("/debug", StaticFiles(directory=debug_ui_dir, html=True), name="debug")
