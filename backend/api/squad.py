@@ -179,6 +179,43 @@ async def join_trip(
     return {"trip_id": trip_id, "status": "joined", "invited_members": _summarize_members(members)}
 
 
+@router.delete("/{trip_id}/members/{email}")
+async def remove_member(
+    trip_id: str,
+    email: str,
+    trip: dict = Depends(require_leader),
+    trips: Any = Depends(get_trips_collection),
+):
+    """Leader-only: drop a member who is holding up the squad.
+
+    Readiness is strict — every invited member must submit — so without this one unresponsive
+    invitee would block the trip permanently.
+    """
+    if trip.get("status") not in (None, "pending", "collecting"):
+        raise HTTPException(status_code=409, detail="Trip has already started planning")
+
+    members = trip.get("invited_members", [])
+    target = next((m for m in members if m.get("email") == email), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Member not found on this trip")
+    if target.get("is_leader"):
+        raise HTTPException(status_code=422, detail="The trip leader cannot be removed")
+
+    remaining = [m for m in members if m.get("email") != email]
+    await trips.update_one(
+        {"trip_id": trip_id},
+        {
+            "$set": {"invited_members": remaining, "updated_at": _now()},
+            "$pull": {"invited_emails": email},
+        },
+    )
+    return {
+        "trip_id": trip_id,
+        "removed": email,
+        "invited_members": _summarize_members(remaining),
+    }
+
+
 @router.post("/{trip_id}/preferences")
 async def submit_preferences(
     trip_id: str,
@@ -293,6 +330,15 @@ async def generate_trip(
     leaders = [m for m in ready if m.get("is_leader")]
     if not leaders:
         raise HTTPException(status_code=422, detail="The trip leader must submit preferences before generating")
+
+    # Strict gate. The UI greys the button using can_generate, but that is only a hint —
+    # this is the boundary. The leader drops stragglers via DELETE .../members/{email}.
+    not_ready = [m.get("email", "") for m in invited_members if not m.get("preferences")]
+    if not_ready:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Waiting on preferences from: {', '.join(not_ready)}",
+        )
 
     taken_ids: set[str] = set()
     graph_members: list[dict] = []

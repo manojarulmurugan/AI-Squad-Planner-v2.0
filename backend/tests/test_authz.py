@@ -79,10 +79,31 @@ class FakeTrips:
         return FakeCursor()
 
 
+def _user_doc(email: str) -> dict:
+    return {"email": email, "name": email.split("@")[0].capitalize(), "avatar_url": ""}
+
+
+class FakeUserCursor:
+    """Async cursor for the batched squad lookup in get_trip."""
+
+    def __init__(self, emails):
+        self._docs = [_user_doc(email) for email in emails]
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._docs:
+            raise StopAsyncIteration
+        return self._docs.pop(0)
+
+
 class FakeUsers:
     async def find_one(self, query, projection=None):
-        email = query.get("email", "")
-        return {"email": email, "name": email.split("@")[0].capitalize(), "avatar_url": ""}
+        return _user_doc(query.get("email", ""))
+
+    def find(self, query=None, projection=None):
+        return FakeUserCursor(((query or {}).get("email") or {}).get("$in", []))
 
 
 def _trip() -> dict:
@@ -256,6 +277,14 @@ def test_member_and_role_matrix(monkeypatch):
         f"/api/trips/{TRIP_ID}/refine",
         json={"message": "Make Day 2 cheaper"},
     ).status_code != 403
+
+    # Dropping a member is leader-only. The check lives in require_leader rather than in
+    # the handler body, so it is exercised through the app instead of in a unit test.
+    app.dependency_overrides[get_current_user] = _override_user(MEMBER)
+    assert client.delete(f"/api/trips/{TRIP_ID}/members/{MEMBER['email']}").status_code == 403
+
+    app.dependency_overrides[get_current_user] = _override_user(LEADER)
+    assert client.delete(f"/api/trips/{TRIP_ID}/members/{MEMBER['email']}").status_code != 403
 
     app.dependency_overrides[get_current_user] = _override_user(MEMBER)
     assert client.get("/api/admin/serpapi-usage").status_code == 403

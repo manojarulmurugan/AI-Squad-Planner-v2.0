@@ -1,26 +1,33 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { Wallet, Luggage, Lock, Users, CalendarRange, PlusCircle, Trash2 } from "lucide-react"
 import PreferenceSlider from "@/molecules/PreferenceSlider"
 import AirportSelect from "@/atoms/AirportSelect"
 import { DatePicker, ConfigProvider } from "antd"
 import dayjs from "dayjs"
+import { submitPreferences } from "@/services/ApiList"
+import { buildPreferencesPayload, DIETARY_OPTIONS } from "@/lib/tripPayload"
 
+// Keys must match backend/data/destinations.json -> vibe_tags. Labels are ours.
 const DEFAULT_VIBES = [
-  { key: "nightlife", label: "Nightlife", value: 50 },
-  { key: "adventure", label: "Adventure", value: 75 },
-  { key: "shopping", label: "Shopping", value: 25 },
+  { key: "outdoor", label: "Nature & Outdoors", value: 50 },
   { key: "food", label: "Food & Dining", value: 100 },
+  { key: "nightlife", label: "Nightlife", value: 50 },
   { key: "urban", label: "Urban Exploration", value: 50 },
-  { key: "nature", label: "Nature & Outdoors", value: 50 },
+  { key: "shopping", label: "Shopping", value: 25 },
 ]
 
 const TripPreferences = () => {
   const navigate = useNavigate()
+  const { tripId } = useParams()
+  const queryClient = useQueryClient()
   const [vibes, setVibes] = useState(DEFAULT_VIBES)
   const [airport, setAirport] = useState("")
   const [budget, setBudget] = useState("")
   const [carryOn, setCarryOn] = useState(false)
+  const [dietary, setDietary] = useState([])
   const [notes, setNotes] = useState("")
 
   // Date windows list state
@@ -31,6 +38,9 @@ const TripPreferences = () => {
 
   const updateVibe = (key, value) =>
     setVibes((prev) => prev.map((v) => (v.key === key ? { ...v, value } : v)))
+
+  const toggleDietary = (key) =>
+    setDietary((prev) => (prev.includes(key) ? prev.filter((d) => d !== key) : [...prev, key]))
 
   const addDateWindow = () => {
     setDateWindows((prev) => [...prev, { start_date: "", end_date: "" }])
@@ -48,14 +58,30 @@ const TripPreferences = () => {
     )
   }
 
+  const { mutate: savePreferences, isPending } = useMutation({
+    mutationFn: (payload) => submitPreferences(tripId, payload),
+    onSuccess: () => {
+      toast.success("Preferences saved. You're ready to roll.")
+      // Start the refetch before navigating, so the lobby doesn't paint a cached copy of
+      // itself still asking for the preferences we just submitted.
+      queryClient.invalidateQueries({ queryKey: ["trip", tripId] })
+      navigate(`/trips/${tripId}/lobby`)
+    },
+    // The backend writes these messages for users — 409 once planning has started,
+    // 422 for a bad payload — so show them as-is rather than inventing our own.
+    onError: (error) => toast.error(error.message),
+  })
+
   const handleSubmit = (e) => {
     e.preventDefault()
-    const tripId = sessionStorage.getItem("currentTripId")
-    if (tripId) {
-      navigate(`/trips/${tripId}/lobby`)
-    } else {
-      navigate("/dashboard")
+    if (!tripId) {
+      toast.error("No trip selected. Start by creating one.")
+      navigate("/trips/new")
+      return
     }
+    savePreferences(
+      buildPreferencesPayload({ vibes, airport, budget, carryOn, dietary, notes, dateWindows })
+    )
   }
 
   // Validate form required fields (Personal Notes is optional)
@@ -221,6 +247,33 @@ const TripPreferences = () => {
 
               <section className="bg-white/40 backdrop-blur-md rounded-2xl border border-white/60 p-6 flex flex-col gap-4 shadow-sm">
                 <h2 className="text-lg font-black text-gray-800 italic">Personal Notes</h2>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                    Dietary Restrictions
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {DIETARY_OPTIONS.map(({ key, label }) => {
+                      const active = dietary.includes(key)
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => toggleDietary(key)}
+                          aria-pressed={active}
+                          className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider border transition-all active:scale-95 ${
+                            active
+                              ? "bg-primary text-black border-primary shadow-sm"
+                              : "bg-white/60 text-slate-500 border-gray-200 hover:border-primary/50"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
                 <div className="flex flex-col flex-1">
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
                     Special Requirements
@@ -229,7 +282,7 @@ const TripPreferences = () => {
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Any allergies, mobility needs, or must-see spots?"
-                    rows={6}
+                    rows={4}
                     className="flex-1 w-full border border-gray-200 rounded-xl px-3 py-2.5 bg-white/60 focus:border-primary focus:ring-2 focus:ring-primary/20 text-sm text-gray-700 placeholder:text-gray-400 outline-none resize-none transition-all"
                   />
                 </div>
@@ -241,10 +294,10 @@ const TripPreferences = () => {
           <div className="flex justify-end mt-2 shrink-0">
             <button
               type="submit"
-              disabled={!isFormValid}
+              disabled={!isFormValid || isPending}
               className="px-8 py-3 rounded-xl bg-primary text-black font-bold text-sm hover:bg-primary-dim transition-colors volt-glow disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
             >
-              Save Preferences
+              {isPending ? "Saving..." : "Save Preferences"}
             </button>
           </div>
 
