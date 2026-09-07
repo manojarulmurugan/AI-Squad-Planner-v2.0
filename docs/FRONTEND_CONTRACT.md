@@ -26,10 +26,11 @@ don't re-declare fetches.
 | `GET /trips/by-invite/{code}` | Public |
 | `POST /trips/{id}/join` | Authenticated with matching invite code |
 | `POST /trips/{id}/preferences` | Member |
-| `GET /trips/{id}`, `/result`, `/stream` | Member |
+| `GET /trips/{id}`, `/result`, `/stream`, `/telemetry` | Member |
 | `POST /trips/{id}/generate`, `/confirm-city`, `/refine` | Leader |
 | `GET /trips/{id}/refinements/{rid}/stream` | Member |
 | `GET /admin/serpapi-usage` | Admin |
+| `GET /calibration/session`, `POST /calibration/labels` | Admin, internal debug tooling only |
 
 `POST /auth/logout` increments the user's session version and revokes every outstanding token for
 that account. Tokens otherwise expire after 24 hours.
@@ -150,9 +151,37 @@ The completed itinerary, server-side — so a page refresh or a new device still
   "decision_log": [], "refinement_history": [] }
 ```
 
+### `GET /trips/{trip_id}/telemetry`
+Returns accumulated model usage and wall-clock measurements after generation:
+```json
+{
+  "trip_id": "...",
+  "telemetry": {
+    "nodes": {
+      "build_itinerary": {
+        "input_tokens": 1200,
+        "output_tokens": 800,
+        "cache_read_tokens": 0,
+        "cost_usd": 0.0052,
+        "duration_ms": 12340
+      }
+    },
+    "totals": {}
+  }
+}
+```
+Member-only. Returns **409** until telemetry is available. Phase 1 renders this
+only in `backend/debug_ui/`; no frontend implementation is required.
+
 ### `POST /trips/{trip_id}/refine` (leader) → refinement stream (member)
 Natural-language edits ("Make Day 2 cheaper"). Second call is SSE and streams the updated
 itinerary, which replaces the current one in place.
+
+### Internal calibration routes — no frontend implementation
+`GET /calibration/session` and `POST /calibration/labels` serve only
+`backend/debug_ui/label.html`. They are admin-only Phase 1 evaluation tooling,
+write human labels to `backend/evals/calibration/labels.json`, and are not part
+of the product UI contract. In particular, do not add them to `frontend/`.
 
 ## Routes the UI needs
 

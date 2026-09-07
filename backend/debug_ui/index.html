@@ -513,6 +513,13 @@
 
         <div class="panel">
           <div class="panel-head">
+            <h2>Telemetry</h2>
+          </div>
+          <pre id="telemetryOutput">Telemetry is available after completion.</pre>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
             <h2>Itinerary JSON</h2>
           </div>
           <pre id="jsonOutput">{}</pre>
@@ -597,6 +604,7 @@
       const storedTrip = document.getElementById("storedTrip");
       const jsonOutput = document.getElementById("jsonOutput");
       const constraintOutput = document.getElementById("constraintOutput");
+      const telemetryOutput = document.getElementById("telemetryOutput");
       const emailInput = document.getElementById("emailInput");
       const passwordInput = document.getElementById("passwordInput");
       const loginButton = document.getElementById("loginButton");
@@ -638,6 +646,7 @@
         storedTrip.textContent = "";
         jsonOutput.textContent = "{}";
         constraintOutput.textContent = "{}";
+        telemetryOutput.textContent = "Telemetry is available after completion.";
         latestJson = null;
         downloadButton.disabled = true;
         copyButton.disabled = true;
@@ -695,6 +704,17 @@
         return response.json();
       }
 
+      async function renderTelemetry(tripId) {
+        if (!tripId) return;
+        try {
+          const response = await apiFetch(`/trips/${encodeURIComponent(tripId)}/telemetry`);
+          const data = await response.json();
+          telemetryOutput.textContent = JSON.stringify(data.telemetry || {}, null, 2);
+        } catch (error) {
+          telemetryOutput.textContent = `Telemetry unavailable: ${error.message}`;
+        }
+      }
+
       function renderCompletedTrip(data, options = {}) {
         const tripId = options.tripId || data.trip_id || (data.itinerary && data.itinerary.trip_id);
         currentTripId = tripId || currentTripId;
@@ -706,6 +726,7 @@
           2
         );
         renderReadableItinerary(latestJson);
+        renderTelemetry(currentTripId);
         if (currentTripId) {
           const shareUrl = new URL(window.location.href);
           shareUrl.pathname = "/debug/";

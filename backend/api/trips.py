@@ -321,6 +321,18 @@ async def get_trip_result(
     }
 
 
+@router.get("/{trip_id}/telemetry")
+async def get_trip_telemetry(
+    trip_id: str,
+    trip: dict = Depends(require_member),
+):
+    """Return accumulated per-node token, cost and latency measurements."""
+    telemetry = trip.get("telemetry")
+    if not telemetry:
+        raise HTTPException(status_code=409, detail="Telemetry is not available for this trip yet")
+    return {"trip_id": trip_id, "telemetry": telemetry}
+
+
 @router.get("/{trip_id}/stream")
 async def stream_trip(
     trip_id: str,
