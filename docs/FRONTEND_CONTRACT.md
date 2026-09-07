@@ -16,6 +16,11 @@ The JS client for every endpoint below already exists in
 [`frontend/src/services/ApiList.js`](../frontend/src/services/ApiList.js) — import from there,
 don't re-declare fetches.
 
+For *why* the backend looks the way it does — what the last two phases changed, which parts of the
+generated itinerary are currently broken, and how the work is organised — see
+[`BACKEND_BRIEFING.md`](BACKEND_BRIEFING.md). This document stays authoritative on the API surface
+itself.
+
 ## Authorization matrix
 
 | Route | Access |
@@ -211,5 +216,6 @@ git show wip/solo-frontend-attempt:frontend/src/pages/Planning.jsx
 - Anyone with the valid invite code may join. There is no allow-list check against
   `invited_emails`.
 - The planner hard-caps at **8 members** and **5 days**.
-- `can_generate` only requires the *leader* to be ready, not everyone. `all_ready` is reported
-  separately if you want a stricter gate in the UI.
+- `can_generate` requires **every** invited member to be ready, plus a trip status of `pending` or
+  `collecting`. `all_ready` is reported separately. The leader can unblock a stalled squad with
+  `DELETE /trips/{trip_id}/members/{email}`, which is leader-only and refuses to remove the leader.
